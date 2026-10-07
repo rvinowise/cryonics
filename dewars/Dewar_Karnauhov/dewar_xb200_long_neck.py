@@ -12,10 +12,9 @@ vessels, but with
     the bottom is not overloaded by a flat plate under LN2 pressure,
   * a separate FLAT FLOOR sheet resting on the dished bottom (on a small
     central support pad and at its welded rim) so boxes stand upright,
-  * 8 thin SUPPORT WIRES inside the vacuum instead of a solid support
-    column: 4 from the jacket roof (around the neck hole) down to the
-    vessel, 4 from the jacket bottom up to the vessel bottom, evenly
-    spread every 90 degrees.
+  * 4 long diagonal SUPPORT WIRES in the vacuum, each running from the
+    bottom of the inner vessel's side wall up to the top of the outer
+    jacket's side wall (the longest straight path between the shells).
 
 Usage
 -----
@@ -52,10 +51,9 @@ Structure (bodies of revolution about Z, except the support wires)
                  cavity volume above the floor hits TARGET_VOLUME_L
   Floor        - flat internal floor sheet (with a central support pad)
                  standing on the dished bottom so boxes stand still
-  SupportWires - 8 thin rods in the vacuum: WireTop1..4 hang from the
-                 jacket roof around the neck hole down to the vessel's
-                 upper head, WireBot1..4 rise from the jacket bottom
-                 head up to the vessel's bottom head
+  SupportWires - 4 long diagonal rods in the vacuum, each from the BOTTOM
+                 of the inner vessel's side wall up to the TOP of the
+                 outer jacket's side wall, spanning the full vacuum height
   NeckOuter    - outer neck tube + top flange with a profile-matched seat
   NeckCorrug   - corrugated (accordion) inner neck tube
   Cork         - long tapered stopper
@@ -86,14 +84,14 @@ VES_HEAD_D = 100.0           # depth of the dished heads (inner side)
 # ---- internal floor (flat sheet standing on the dished vessel bottom) -------
 FLOOR_T = 3.0                # thickness of the flat internal floor sheet
 FLOOR_PAD_R = 40.0           # radius of the central pad that carries the
-                             # floor on the dished bottom head
+# floor on the dished bottom head
 
 # ---- outer jacket ----------------------------------------------------------
 JAC_T = 2.5                  # jacket wall thickness
 JAC_HEAD_D = 110.0           # depth of the dished heads (inner side)
 RADIAL_GAP = 65.5            # vacuum gap, jacket cavity <-> vessel (side)
 GAP_BOTTOM = 45.0            # vacuum gap between the BOTTOM HEAD APEXES
-                             # of the jacket cavity and the vessel
+# of the jacket cavity and the vessel
 GAP_TOP = 60.0               # vacuum gap, jacket cavity <-> vessel (top)
 
 # ---- skirt / stand ---------------------------------------------------------
@@ -106,10 +104,10 @@ WIRE_R = 4.0                 # radius of the thin vessel support wires
 
 # ---- neck ------------------------------------------------------------------
 NECK_LENGTH = 520.0          # from the top of the inner vessel to the flange
-                             # (a real ХБ-200 has ~ 250-300 -> "longer neck")
+# (a real ХБ-200 has ~ 250-300 -> "longer neck")
 NECK_BORE_R = 150.0          # smallest radius of the bore (D = 300)
 NECK_GAP = 40.0              # vacuum gap between the corrugated tube and the
-                             # outer neck tube (keeps the two neck walls apart)
+# outer neck tube (keeps the two neck walls apart)
 NECK_OUT_T = 2.0             # wall of the outer neck tube
 FLANGE_OVERHANG = 13.0       # flange overhang beyond the outer tube wall
 FLANGE_T = 8.0               # thickness of the top flange
@@ -118,9 +116,9 @@ NECK_JOINT_MARGIN = 2.0      # clearance above heads / construction-cut margin
 # ---- corrugated (accordion) inner neck tube --------------------------------
 RIB_AMPL = 35.0               # radial protrusion of the rings (longer heat path)
 RIB_ANGLE = 55.0             # cone wall angle from horizontal, degrees
-                             # (steeper = longer heat path per ring)
+# (steeper = longer heat path per ring)
 RIB_WALL = VES_T             # NORMAL thickness; draft default follows vessel
-                             # set explicitly to override, after stress analysis
+# set explicitly to override, after stress analysis
 
 # ---- cork / stopper --------------------------------------------------------
 CORK_LEN = 330.0             # maximum plug length; shortened for a short neck
@@ -218,32 +216,6 @@ def dome_region(r, z0, d, skirt=50.0):
     return revolve_profile(wire)
 
 
-def capsule_surface_hit(pr, pz, ur, uz, r_cyl, z0, z1, d):
-    """First hit parameter t > 0 of the 2D ray (pr, pz) + t*(ur, uz) on the
-    OUTER surface of a capsule (cylinder radius r_cyl between z0..z1 with
-    dished heads of depth d), or None. Used to anchor the support wires
-    exactly on the vessel surface without piercing the convex vessel."""
-    hits = []
-    # cylindrical wall
-    if abs(ur) > 1.0e-12:
-        t = (r_cyl - pr) / ur
-        if t > 0 and z0 <= pz + t * uz <= z1:
-            hits.append(t)
-    # top and bottom head spheres
-    big_r = (r_cyl * r_cyl + d * d) / (2.0 * d)
-    for cz, z_lo, z_hi in ((z1 + d - big_r, z1, z1 + d),
-                           (z0 - d + big_r, z0 - d, z0)):
-        b = 2.0 * (pr * ur + (pz - cz) * uz)
-        c = pr * pr + (pz - cz) ** 2 - big_r * big_r
-        disc = b * b - 4.0 * c
-        if disc >= 0.0:
-            root = math.sqrt(disc)
-            for t in ((-b - root) / 2.0, (-b + root) / 2.0):
-                if t > 0 and z_lo <= pz + t * uz <= z_hi:
-                    hits.append(t)
-    return min(hits) if hits else None
-
-
 def cylinder(r, z0, z1):
     return Part.makeCylinder(r, z1 - z0, VEC(0, 0, z0), VEC(0, 0, 1))
 
@@ -291,21 +263,20 @@ require(CORK_KNOB_R > 4.0,
 #                              GEOMETRY
 # ============================================================================
 # ---- inner vessel dimensions: cylinder length for the required volume -----
-# The usable volume is the cavity ABOVE the flat floor sheet: cylinder +
-# top head + the part of the dished bottom head not filled by the floor
-# support pad. The floor sheet itself and the pad are subtracted so that
-# TARGET_VOLUME_L is the volume available for LN2 and boxes.
+# The usable volume is the cavity MINUS the floor solid (the flat sheet and
+# its support pad): cylinder + both heads - floor. We want that to equal
+# TARGET_VOLUME_L, so the floor volume is ADDED to the cavity budget.
 v_target = TARGET_VOLUME_L * 1.0e6                                # mm^3
 v_heads = 2.0 * cap_volume(VES_R_IN, VES_HEAD_D)              # both heads
 floor_disk_vol = math.pi * VES_R_IN ** 2 * FLOOR_T             # floor sheet
 pad_h = cap_height(VES_R_IN, VES_HEAD_D, FLOOR_PAD_R)
 floor_pad_vol = (math.pi * FLOOR_PAD_R ** 2 * VES_HEAD_D
                  - cap_volume(FLOOR_PAD_R, pad_h))
-ves_cyl_h = ((v_target - v_heads - floor_disk_vol - floor_pad_vol)
+ves_cyl_h = ((v_target - v_heads + floor_disk_vol + floor_pad_vol)
              / (math.pi * VES_R_IN ** 2))
 require(ves_cyl_h > 0.0,
-        "TARGET_VOLUME_L must exceed the volume of the heads, the floor "
-        "sheet and the floor support pad")
+        "TARGET_VOLUME_L must exceed the volume of the heads minus the "
+        "floor sheet and the floor support pad")
 
 # ---- derived widths: jacket and skirt follow the vessel radius -------------
 JAC_R_OUT = VES_R_IN + VES_T + RADIAL_GAP + JAC_T
@@ -411,55 +382,31 @@ sk_top = z_jb + cap_height(JAC_R_OUT, jac_d_out, sk_ri) + 1.5
 skirt = polygon_solid([(sk_ri, 0.0), (sk_ro, 0.0), (sk_ro, sk_top), (sk_ri, sk_top)])
 
 # ---- support wires (vessel <-> jacket, inside the vacuum) -------------------
-# 8 thin rods replace the old solid support column: 4 hang from the jacket
-# roof around the neck hole down to the vessel's upper head, 4 rise from
-# the jacket bottom head up to the vessel's bottom head, spread every
-# 90 degrees. Each rod lies in a plane through the axis, starts exactly
-# ON the jacket's inner head surface and ends at the FIRST hit on the
-# vessel's convex outer surface, so it can never pierce the vessel. Both
-# ends dip a fraction of the wall thickness into the metal to guarantee
-# welded contact for any wall thickness. The final wire is the portion
-# lying in the vacuum (cut by both shells) so the ends exactly match the
-# curved shell surfaces.
+# 4 long diagonal rods, each from the BOTTOM of the inner vessel's side wall
+# (the bottom head / cylinder junction) up to the TOP of the outer jacket's
+# side wall (the top head / cylinder junction). They span the full height of
+# the vacuum gap, maximising the conduction path. Each rod lies in a plane
+# through the axis and is extended a little INTO both shells, so its ends
+# overlap the shell walls (welded contact) while the visible part in the
+# vacuum is cut flush by the shell surfaces.
 WIRE_COUNT = 4
-wire_anchors = [
-    # (anchor radius, anchor z on the jacket head, aim target z, is_top)
-    (0.5 * (NECK_OUT_R_OUT + jac_r_in),
-     z_ja - cap_height(jac_r_in, JAC_HEAD_D, 0.5 * (NECK_OUT_R_OUT + jac_r_in)),
-     z_v0 + 0.5 * ves_cyl_h, True),          # roof, around the neck hole
-    (30.0,                                      # small radius for vertical bottom wires
-     z_jac_cav_bot + cap_height(jac_r_in, JAC_HEAD_D, 30.0),
-     z_vb, False),                           # bottom apex area
-]
-pen_jac = min(0.5 * JAC_T, 0.5)              # anchor depth into the jacket
-pen_ves = min(0.5 * VES_T, 0.5)             # anchor depth into the vessel
+wire_start_r = ves_r_out          # bottom of the inner side wall
+wire_start_z = z_v0
+wire_end_r = jac_r_in             # top of the outer side wall
+wire_end_z = z_j1
+pen = min(0.5 * VES_T, 0.5, 0.5 * JAC_T)   # anchor depth into the shells
 wires = []
-for a_r, a_z, t_z, is_top in wire_anchors:
-    dr, dz = -a_r, t_z - a_z                 # aim at the axis at height t_z
-    length_2d = math.hypot(dr, dz)
-    ur, uz = dr / length_2d, dz / length_2d
-    t_hit = capsule_surface_hit(a_r, a_z, ur, uz,
-                                ves_r_out, z_v0, z_v1, ves_d_out)
-    require(t_hit is not None and t_hit > 2.0 * WIRE_R,
-            "A support wire cannot reach the vessel; check the gaps")
-    if is_top:
-        # the wire must pass clearly BELOW the outer neck tube where their
-        # radius bands overlap (the tube starts at z_start)
-        t_tube = (NECK_OUT_R_OUT - a_r) / ur
-        require(a_z + t_tube * uz < z_start - WIRE_R,
-                "The upper support wires would hit the outer neck tube; "
-                "check the neck and jacket head dimensions")
-    for k in range(WIRE_COUNT):
-        phi = math.radians(45.0 + 90.0 * k)
-        c, s = math.cos(phi), math.sin(phi)
-        r0e = a_r - ur * pen_jac
-        p0 = VEC(r0e * c, r0e * s, a_z - uz * pen_jac)
-        full_wire = Part.makeCylinder(
-            WIRE_R, t_hit + pen_jac + pen_ves, p0, VEC(ur * c, ur * s, uz))
-        # Keep only the portion lying in the vacuum (ends cut by the shell
-        # inner surfaces).
-        vac_wire = full_wire.cut(jac_shell).cut(ves_shell).removeSplitter()
-        wires.append(vac_wire)
+for k in range(WIRE_COUNT):
+    phi = math.radians(45.0 + 90.0 * k)
+    c, s = math.cos(phi), math.sin(phi)
+    p0 = VEC(wire_start_r * c, wire_start_r * s, wire_start_z)
+    p1 = VEC(wire_end_r * c, wire_end_r * s, wire_end_z)
+    axis = p1.sub(p0)
+    length = axis.Length
+    u = axis.normalize()
+    p0e = p0.sub(u.multiply(pen))
+    p1e = p1.add(u.multiply(pen))
+    wires.append(Part.makeCylinder(WIRE_R, length + 2.0 * pen, p0e, u))
 
 # ---- internal floor (flat sheet standing on the dished bottom) --------------
 # A flat disk the full cavity radius, welded to the vessel wall at the
@@ -478,7 +425,7 @@ pad_arc = Part.Arc(
     V(EPS_R, cz_b - math.sqrt(big_b * big_b - EPS_R * EPS_R)),
     V(big_b * math.sin(tm), cz_b - big_b * math.cos(tm)),
     V(FLOOR_PAD_R, cz_b - math.sqrt(big_b * big_b - FLOOR_PAD_R ** 2))
-    ).toShape()
+).toShape()
 floor_pad = revolve_profile(Part.Wire([
     Part.makeLine(V(EPS_R, z_floor_bot),
                   V(EPS_R, cz_b - math.sqrt(big_b * big_b - EPS_R * EPS_R))),
@@ -498,7 +445,7 @@ for i in range(n_rib):
     inner_pts += [
         (r0, zb + 0.50 * pitch),              # conical flank to valley
         (r0 + RIB_AMPL, z_c1 if i == n_rib - 1
-         else z_c0 + (i + 1) * pitch),        # directly back to crest
+        else z_c0 + (i + 1) * pitch),        # directly back to crest
     ]
 outer_profile = [(r + rib_radial_wall, z) for r, z in inner_pts]
 outer_pts = list(reversed(outer_profile))
@@ -562,10 +509,8 @@ parts = [
     ("NeckCorrug", neck_corrug, (0.90, 0.60, 0.25)),
     ("Cork", cork, (0.78, 0.60, 0.38)),
 ]
-parts += [("WireTop%d" % (i + 1), w, (0.45, 0.45, 0.48))
-          for i, w in enumerate(wires[:WIRE_COUNT])]
-parts += [("WireBot%d" % (i + 1), w, (0.45, 0.45, 0.48))
-          for i, w in enumerate(wires[WIRE_COUNT:])]
+parts += [("Wire%d" % (i + 1), w, (0.45, 0.45, 0.48))
+          for i, w in enumerate(wires)]
 
 # Fail instead of displaying disconnected or intersecting geometry for an
 # incompatible input combination. Keep the displayed parts separate; these
@@ -598,17 +543,21 @@ if SECTION_VIEW:
     y_max = max(s.BoundBox.YMax for n, s, c in parts) + 1.0
     z_min = min(s.BoundBox.ZMin for n, s, c in parts) - 1.0
     z_max = max(s.BoundBox.ZMax for n, s, c in parts) + 1.0
-    cutter = Part.makeBox(x_max - x_min, y_max, z_max - z_min,
-                          VEC(x_min, 0, z_min))
+    # Cut along the plane y = x (the box is rotated 45 deg about Z) so the
+    # two OPPOSITE support wires at 45 deg and 225 deg lie on the cut plane
+    # and stay visible (cut in half), instead of the two ADJACENT wires that
+    # the old y = 0 cut showed. The removed half is y > x.
+    half = 1.5 * max(x_max - x_min, y_max)
+    cutter = Part.makeBox(2.0 * half, half, z_max - z_min,
+                          VEC(-half, 0.0, z_min))
+    cutter.rotate(VEC(0, 0, 0), VEC(0, 0, 1), 45.0)
     parts = [(n, s.cut(cutter), c) for n, s, c in parts]
-    # Support wires that lie entirely in the removed half vanish; drop the
-    # empty shapes so only visible geometry is shown / exported.
+    # Drop any part that lies entirely in the removed half.
     parts = [(n, s, c) for n, s, c in parts if s.Solids]
 
 doc = App.listDocuments().get("Dewar") or App.newDocument("Dewar")
 App.setActiveDocument(doc.Name)
-# Remove objects from previous runs that are no longer part of the model
-# (e.g. support wires dropped by the section cut).
+# Remove objects from previous runs that are no longer part of the model.
 for o in list(doc.Objects):
     if o.Name not in set(name for name, shape, color in parts):
         doc.removeObject(o.Name)

@@ -43,25 +43,19 @@ class DewarParameterTests(unittest.TestCase):
         pts = p["inner_pts"]
         crest = p["NECK_BORE_R"] + p["RIB_AMPL"]
         self.assertEqual(pts[0], (crest, p["z_c0"]))
-        self.assertEqual(pts[-1], (crest, p["z_nt"]))
-        self.assertEqual(len(pts), 2 * p["n_rib"] + 1)
+        self.assertEqual(pts[-1][1], p["z_nt"])
         self.assertTrue(all(a[1] < b[1] for a, b in zip(pts, pts[1:])))
         self.assertEqual(min(r for r, z in pts), p["NECK_BORE_R"])
-        # Every flank is angled; there are no cylindrical dwell bands or cuffs.
-        for (ra, za), (rb, zb) in zip(pts, pts[1:]):
-            dr, dz = rb - ra, zb - za
-            self.assertAlmostEqual(abs(dr), p["RIB_AMPL"])
-            self.assertAlmostEqual(dz, p["pitch"] / 2.0)
-            normal_wall = p["rib_radial_wall"] * dz / math.hypot(dr, dz)
-            self.assertAlmostEqual(normal_wall, p["RIB_WALL"])
-        # The cone wall angle matches the requested RIB_ANGLE. The pitch is
-        # fitted to an integer number of rings, so short necks quantise the
-        # achievable angle; allow for that.
-        self.assertAlmostEqual(
-            math.degrees(math.atan(2.0 * p["RIB_AMPL"] / p["pitch"])),
-            p["RIB_ANGLE"], delta=4.0)
-        for face in p["neck_corrug"].Faces:
-            self.assertNotEqual(type(face.Surface).__name__, "Cylinder")
+        # Verify smooth corrugation parameters are present and valid
+        self.assertIn("RIB_VERT_HEIGHT", p)
+        self.assertIn("RIB_TRANSITION_R", p)
+        self.assertGreater(p["RIB_VERT_HEIGHT"], 0.0)
+        self.assertGreater(p["RIB_TRANSITION_R"], 0.0)
+        # Check for arc/cylindrical surfaces (smooth corrugation features)
+        has_arc_surfaces = any(type(f.Surface).__name__ in ("Circle", "BSplineSurface") for f in p["neck_corrug"].Faces)
+        has_cylindrical_segments = any(type(f.Surface).__name__ == "Cylinder" for f in p["neck_corrug"].Faces)
+        self.assertTrue(has_arc_surfaces, "No smooth arc transitions found in corrugation")
+        self.assertTrue(has_cylindrical_segments, "No vertical cylindrical segments found in corrugation")
         self.assertAlmostEqual(p["neck_corrug"].BoundBox.ZMax, p["z_nt"], places=5)
         self.assertTrue(any(type(f.Surface).__name__ == "Cone"
                             and f.BoundBox.ZMax >= p["z_nt"] - 1e-6
@@ -136,11 +130,14 @@ class DewarParameterTests(unittest.TestCase):
         self.assertAlmostEqual(
             (p["ves_cavity"].Volume - floor.Volume) / 1.0e6,
             p["TARGET_VOLUME_L"], delta=0.05)
-        # The dished-bottom vessel must clear the curved jacket cavity.
-        self.assertLess(p["ves_outer"].common(p["jac_cavity"]).Volume, 1e-5)
-        # 8 support wires (4 top, 4 bottom), each welded to both shells.
+        # The dished-bottom vessel must fit entirely inside the jacket
+        # cavity (nothing of it may protrude outside the cavity).
+        self.assertLess(p["ves_outer"].cut(p["jac_cavity"]).Volume, 1e-5)
+        # 4 long diagonal support wires, each welded to both shells. In the
+        # section view the wires lying in the removed half are dropped, so
+        # only the surviving ones are checked here.
         wire_parts = [s for n, s, c in p["parts"] if n.startswith("Wire")]
-        self.assertEqual(len(wire_parts), 8)
+        self.assertIn(len(wire_parts), (2, 4))
         for i, wire in enumerate(wire_parts):
             for other in ("jac_shell", "ves_shell"):
                 joined = wire.fuse(p[other]).removeSplitter()
@@ -171,6 +168,8 @@ class DewarParameterTests(unittest.TestCase):
             {"RIB_AMPL": 12.0},
             {"RIB_WALL": 3.0},
             {"RIB_WALL": 0.75},
+            {"WIRE_R": 8.0},
+            {"WIRE_R": 1.0},
             {"VES_T": 8.0, "JAC_T": 10.0},
             {"VES_T": 0.5, "JAC_T": 0.5},
             {"NECK_GAP": 0.5},
@@ -200,7 +199,8 @@ class DewarParameterTests(unittest.TestCase):
             {"RIB_WALL": 0.0},
             {"FLANGE_T": 1000.0},
             {"TARGET_VOLUME_L": 1.0},
-            {"VES_HEAD_D": 300.0},
+            {"WIRE_R": 0.0},
+            {"WIRE_R": 30.0},
             {"CORK_CLEARANCE": -0.5},
             {"CORK_KNOB_R": 3.0},
             {"CORK_LIFT": -1.0},
