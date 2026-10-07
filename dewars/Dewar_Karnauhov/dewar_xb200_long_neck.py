@@ -4,9 +4,11 @@ FreeCAD macro: 240 L LN2 storage dewar, similar to the Soviet ХБ-200 class
 vessels, but with
 
   * a much LONGER NECK (less heat leak -> lower LN2 boil-off),
-  * a CORRUGATED ("accordion") INNER NECK TUBE made only of alternating
-    conical rings (parametrised cone angle and protrusion), giving the
-    metal wall a longer conduction path,
+  * a CORRUGATED ("accordion") INNER NECK TUBE with smooth rounded convolutions
+    made of alternating horizontal rings and vertical rings connected by smooth
+    transition arcs (the outer vertical ring connects outer edges of horizontal
+    rings, and the inner vertical ring connects inner edges of horizontal rings),
+    giving the metal wall a longer conduction path without sharp corners,
   * a LONG BOTTLE-CORK-LIKE STOPPER (tapered plug + head + knob),
   * a DISHED (rounded) inner-vessel BOTTOM head like the other heads, so
     the bottom is not overloaded by a flat plate under LN2 pressure,
@@ -114,11 +116,11 @@ FLANGE_T = 8.0               # thickness of the top flange
 NECK_JOINT_MARGIN = 2.0      # clearance above heads / construction-cut margin
 
 # ---- corrugated (accordion) inner neck tube --------------------------------
-RIB_AMPL = 35.0               # radial protrusion of the rings (longer heat path)
-RIB_ANGLE = 55.0             # cone wall angle from horizontal, degrees
-# (steeper = longer heat path per ring)
-RIB_WALL = VES_T             # NORMAL thickness; draft default follows vessel
-# set explicitly to override, after stress analysis
+RIB_AMPL = 65.0               # radial protrusion of the rings (longer heat path)
+RIB_VERT_HEIGHT = 0.1         # height of vertical ring segments (mm)
+RIB_TRANSITION_R = 20.0        # bend radius between horizontal and vertical rings (mm)
+RIB_WALL = VES_T             # wall thickness; draft default follows vessel
+RIB_ANGLE = 55.0             # legacy parameter, kept for backwards compatibility
 
 # ---- cork / stopper --------------------------------------------------------
 CORK_LEN = 330.0             # maximum plug length; shortened for a short neck
@@ -156,6 +158,24 @@ def polygon_solid(pts):
     pl = [V(r, z) for r, z in pts]
     pl.append(pl[0])
     return revolve_profile(Part.makePolygon(pl))
+
+
+def arc_edge(p1, p2, p_center, clockwise):
+    """Circular arc from p1 to p2 around p_center."""
+    v1 = p1.sub(p_center)
+    v2 = p2.sub(p_center)
+    r = v1.Length
+    a1 = math.atan2(v1.z, v1.x)
+    a2 = math.atan2(v2.z, v2.x)
+    if clockwise:
+        if a2 > a1:
+            a2 -= 2.0 * math.pi
+    else:
+        if a2 < a1:
+            a2 += 2.0 * math.pi
+    amid = 0.5 * (a1 + a2)
+    pmid = VEC(p_center.x + r * math.cos(amid), 0.0, p_center.z + r * math.sin(amid))
+    return Part.Arc(p1, pmid, p2).toShape()
 
 
 def cap_arc(r, z0, d, up):
@@ -238,7 +258,8 @@ for parameter in (
         "JAC_T", "JAC_HEAD_D", "RADIAL_GAP", "GAP_BOTTOM", "GAP_TOP",
         "SKIRT_H", "SKIRT_INSET", "SKIRT_T", "NECK_LENGTH", "NECK_BORE_R",
         "NECK_GAP", "NECK_OUT_T", "FLANGE_OVERHANG", "FLANGE_T",
-        "NECK_JOINT_MARGIN", "RIB_AMPL", "RIB_ANGLE", "RIB_WALL", "CORK_LEN",
+        "NECK_JOINT_MARGIN", "RIB_AMPL", "RIB_VERT_HEIGHT", "RIB_TRANSITION_R",
+        "RIB_ANGLE", "RIB_WALL", "CORK_LEN",
         "CORK_CLEARANCE", "CORK_TAPER", "CORK_TIP_CLEARANCE", "CORK_HEAD_H",
         "CORK_KNOB_R", "CORK_KNOB_H", "WIRE_R"):
     require(math.isfinite(globals()[parameter]) and globals()[parameter] > 0.0,
@@ -247,6 +268,10 @@ require(math.isfinite(CORK_LIFT) and CORK_LIFT >= 0.0,
         "CORK_LIFT must be finite and non-negative")
 require(0.0 < RIB_ANGLE < 90.0,
         "RIB_ANGLE must be between 0 and 90 degrees")
+require(RIB_VERT_HEIGHT > 0.0,
+        "RIB_VERT_HEIGHT must be greater than zero")
+require(RIB_TRANSITION_R > 0.0,
+        "RIB_TRANSITION_R must be greater than zero")
 require(VES_HEAD_D <= VES_R_IN,
         "VES_HEAD_D must not exceed VES_R_IN")
 require(FLOOR_PAD_R < VES_R_IN,
@@ -310,23 +335,35 @@ z_jat = z_ja + JAC_T                            # jacket outer top apex
 
 z_nt = z_va + NECK_LENGTH                       # top of neck flange
 
-# ---- continuous conical neck: fitted pitch and true sheet thickness --------
+# ---- rounded corrugated neck: fitted pitch and smooth profile -------------
 # Start the construction profile at the head's cylinder junction, safely
 # inside the vessel cavity. The curved cavity trims away all hidden rings;
-# the finished bellows has only conical faces all the way to the mouth.
+# the finished bellows has smooth horizontal and vertical rings connected by
+# transition fillets without sharp corners.
 z_c0 = z_v1
 z_c1 = z_nt
 c_len = z_c1 - z_c0
-# Nominal pitch follows the requested cone angle and ring protrusion; the
-# actual pitch is then fitted to an integer number of rings.
-rib_pitch_nominal = 2.0 * RIB_AMPL / math.tan(math.radians(RIB_ANGLE))
-n_rib = max(1, int(round(c_len / rib_pitch_nominal)))
+
+# Effective transition radius clamped to avoid self-intersection on small amplitudes
+rc_eff = min(RIB_TRANSITION_R, 0.45 * RIB_AMPL)
+rc_eff = max(rc_eff, RIB_WALL * 0.55)
+
+if "RIB_ANGLE" in globals() and RIB_ANGLE != 55.0:
+    nom_period = max(2.0 * rc_eff + 1.0, 2.0 * RIB_AMPL / math.tan(math.radians(RIB_ANGLE)))
+else:
+    nom_period = 2.0 * RIB_VERT_HEIGHT + 4.0 * rc_eff
+n_rib = max(1, int(round(c_len / nom_period)))
 pitch = c_len / n_rib
-# A constant radial offset of t * sqrt(1 + slope^2) gives normal thickness t
-# on BOTH alternating cone slopes. Symmetric sharp folds use mitered corners.
-rib_slope = 2.0 * RIB_AMPL / pitch
-rib_radial_wall = RIB_WALL * math.hypot(1.0, rib_slope)
-NECK_CORRUG_OUT_R = NECK_BORE_R + RIB_AMPL + rib_radial_wall
+
+scale = pitch / nom_period
+hv_fit = RIB_VERT_HEIGHT * scale
+rc_fit = rc_eff * scale
+
+rin_c = NECK_BORE_R + RIB_WALL / 2.0
+rout_c = rin_c + RIB_AMPL
+t = RIB_WALL
+
+NECK_CORRUG_OUT_R = rout_c + t / 2.0
 NECK_OUT_R_IN = NECK_CORRUG_OUT_R + NECK_GAP
 NECK_OUT_R_OUT = NECK_OUT_R_IN + NECK_OUT_T
 FLANGE_R = NECK_OUT_R_OUT + FLANGE_OVERHANG
@@ -438,27 +475,101 @@ floor_pad = revolve_profile(Part.Wire([
 floor_part = floor_disk.fuse(floor_pad).removeSplitter()
 
 # ---- corrugated ("accordion") inner neck tube ------------------------------
-r0 = NECK_BORE_R
-inner_pts = [(r0 + RIB_AMPL, z_c0)]
+# Smooth profile of alternating horizontal and vertical rings with rounded
+# corner fillets (lines + arcs revolved around Z).
+inner_edges = []
+outer_edges = []
+inner_pts = [(rout_c - t / 2.0, z_c0)]
+
 for i in range(n_rib):
-    zb = z_c0 + i * pitch
-    inner_pts += [
-        (r0, zb + 0.50 * pitch),              # conical flank to valley
-        (r0 + RIB_AMPL, z_c1 if i == n_rib - 1
-        else z_c0 + (i + 1) * pitch),        # directly back to crest
-    ]
-outer_profile = [(r + rib_radial_wall, z) for r, z in inner_pts]
-outer_pts = list(reversed(outer_profile))
-neck_corrug = polygon_solid(inner_pts + outer_pts)
-# No flat lower cuff: trim the conical wall flush to the curved inner head.
-# The trim tool is the exact spherical dome region (dome_region), whose
-# tiny axial hole avoids the degenerate apex faces that make some OCC
-# versions silently skip this cut.
+    z0 = z_c0 + i * pitch
+
+    # 1. Outer vertical
+    p_in_start = V(rout_c - t / 2.0, z0)
+    p_in_end = V(rout_c - t / 2.0, z0 + hv_fit)
+    p_out_start = V(rout_c + t / 2.0, z0)
+    p_out_end = V(rout_c + t / 2.0, z0 + hv_fit)
+    inner_edges.append(Part.makeLine(p_in_start, p_in_end))
+    outer_edges.append(Part.makeLine(p_out_start, p_out_end))
+    inner_pts.append((rout_c - t / 2.0, z0 + hv_fit))
+
+    # 2. Corner 1: turns UP to LEFT (counterclockwise)
+    c1 = V(rout_c - rc_fit, z0 + hv_fit)
+    r_in_1 = rc_fit - t / 2.0
+    r_out_1 = rc_fit + t / 2.0
+    p_in_c1 = V(c1.x, c1.z + r_in_1)
+    p_out_c1 = V(c1.x, c1.z + r_out_1)
+    inner_edges.append(arc_edge(p_in_end, p_in_c1, c1, clockwise=False))
+    outer_edges.append(arc_edge(p_out_end, p_out_c1, c1, clockwise=False))
+    inner_pts.append((c1.x, c1.z + r_in_1))
+
+    # 3. Horizontal inward
+    p_in_h1 = V(rin_c + rc_fit, z0 + hv_fit + rc_fit - t / 2.0)
+    p_out_h1 = V(rin_c + rc_fit, z0 + hv_fit + rc_fit + t / 2.0)
+    inner_edges.append(Part.makeLine(p_in_c1, p_in_h1))
+    outer_edges.append(Part.makeLine(p_out_c1, p_out_h1))
+    inner_pts.append((rin_c + rc_fit, z0 + hv_fit + rc_fit - t / 2.0))
+
+    # 4. Corner 2: turns LEFT to UP (clockwise)
+    c2 = V(rin_c + rc_fit, z0 + hv_fit + 2.0 * rc_fit)
+    r_in_2 = rc_fit + t / 2.0
+    r_out_2 = rc_fit - t / 2.0
+    p_in_c2 = V(rin_c - t / 2.0, c2.z)
+    p_out_c2 = V(rin_c + t / 2.0, c2.z)
+    inner_edges.append(arc_edge(p_in_h1, p_in_c2, c2, clockwise=True))
+    outer_edges.append(arc_edge(p_out_h1, p_out_c2, c2, clockwise=True))
+    inner_pts.append((rin_c - t / 2.0, c2.z))
+
+    # 5. Inner vertical
+    p_in_v2 = V(rin_c - t / 2.0, c2.z + hv_fit)
+    p_out_v2 = V(rin_c + t / 2.0, c2.z + hv_fit)
+    inner_edges.append(Part.makeLine(p_in_c2, p_in_v2))
+    outer_edges.append(Part.makeLine(p_out_c2, p_out_v2))
+    inner_pts.append((rin_c - t / 2.0, c2.z + hv_fit))
+
+    # 6. Corner 3: turns UP to RIGHT (clockwise)
+    c3 = V(rin_c + rc_fit, c2.z + hv_fit)
+    r_in_3 = rc_fit + t / 2.0
+    r_out_3 = rc_fit - t / 2.0
+    p_in_c3 = V(c3.x, c3.z + r_in_3)
+    p_out_c3 = V(c3.x, c3.z + r_out_3)
+    inner_edges.append(arc_edge(p_in_v2, p_in_c3, c3, clockwise=True))
+    outer_edges.append(arc_edge(p_out_v2, p_out_c3, c3, clockwise=True))
+    inner_pts.append((c3.x, c3.z + r_in_3))
+
+    # 7. Horizontal outward
+    p_in_h2 = V(rout_c - rc_fit, c3.z + rc_fit + t / 2.0)
+    p_out_h2 = V(rout_c - rc_fit, c3.z + rc_fit - t / 2.0)
+    inner_edges.append(Part.makeLine(p_in_c3, p_in_h2))
+    outer_edges.append(Part.makeLine(p_out_c3, p_out_h2))
+    inner_pts.append((rout_c - rc_fit, c3.z + rc_fit + t / 2.0))
+
+    # 8. Corner 4: turns RIGHT to UP (counterclockwise)
+    c4 = V(rout_c - rc_fit, z0 + 2.0 * hv_fit + 4.0 * rc_fit)
+    r_in_4 = rc_fit - t / 2.0
+    r_out_4 = rc_fit + t / 2.0
+    p_in_c4 = V(rout_c - t / 2.0, c4.z)
+    p_out_c4 = V(rout_c + t / 2.0, c4.z)
+    inner_edges.append(arc_edge(p_in_h2, p_in_c4, c4, clockwise=False))
+    outer_edges.append(arc_edge(p_out_h2, p_out_c4, c4, clockwise=False))
+    inner_pts.append((rout_c - t / 2.0, c4.z))
+
+top_edge = Part.makeLine(inner_edges[-1].Vertexes[1].Point, outer_edges[-1].Vertexes[1].Point)
+bot_edge = Part.makeLine(outer_edges[0].Vertexes[0].Point, inner_edges[0].Vertexes[0].Point)
+rev_outer = [e.reversed() for e in reversed(outer_edges)]
+corrug_wire = Part.Wire(inner_edges + [top_edge] + rev_outer + [bot_edge])
+neck_corrug = revolve_profile(corrug_wire)
+
+# Trim lower portion flush to curved inner head
 neck_corrug = neck_corrug.cut(
     dome_region(VES_R_IN, z_v1, VES_HEAD_D)).removeSplitter()
-# This axis-filled envelope supplies exactly matching joint surfaces for
-# both the vessel opening and the flange seat, at any phase of a rib.
-neck_envelope = polygon_solid([(0.0, z_c0)] + outer_profile + [(0.0, z_c1)])
+
+# Envelope solid to cut matching seats in vessel head and flange
+env_top = Part.makeLine(outer_edges[-1].Vertexes[1].Point, V(0.0, z_c1))
+env_axis = Part.makeLine(V(0.0, z_c1), V(0.0, z_c0))
+env_bot = Part.makeLine(V(0.0, z_c0), outer_edges[0].Vertexes[0].Point)
+env_wire = Part.Wire(outer_edges + [env_top, env_axis, env_bot])
+neck_envelope = revolve_profile(env_wire)
 ves_shell = ves_shell.cut(neck_envelope).removeSplitter()
 n_rib_visible = sum(1 for i in range(n_rib)
                     if z_c0 + (i + 1) * pitch > neck_corrug.BoundBox.ZMin)
@@ -598,14 +709,14 @@ App.Console.PrintMessage(
     "Jacket outer diameter     : %.0f mm\n"
     "Neck length (vessel->top) : %.0f mm\n"
     "Neck bore diameter        : %.0f mm (outer tube D = %.0f mm)\n"
-    "Corrugated neck ribs      : %d visible (pitch %.1f mm, depth %.1f mm, angle %.1f deg)\n"
-    "Bellows normal thickness  : %.2f mm (NOT structurally rated)\n"
+    "Corrugated neck ribs      : %d visible (pitch %.1f mm, depth %.1f mm, vert %.1f mm, radius %.1f mm)\n"
+    "Bellows wall thickness    : %.2f mm (NOT structurally rated)\n"
     "Cork plug length          : %.1f mm (requested maximum %.1f mm)\n"
     % ((ves_cavity.Volume - floor_part.Volume) / 1.0e6,
        ves_cavity.Volume / 1.0e6, neck_bore_vol, ves_cyl_h, z_nt,
        zc + CORK_HEAD_H + CORK_KNOB_H, 2 * JAC_R_OUT, NECK_LENGTH,
        2 * NECK_BORE_R, 2 * NECK_OUT_R_IN,
        n_rib_visible, pitch, RIB_AMPL,
-       math.degrees(math.atan(2.0 * RIB_AMPL / pitch)),
+       hv_fit, rc_fit,
        RIB_WALL, cork_len, CORK_LEN)
 )

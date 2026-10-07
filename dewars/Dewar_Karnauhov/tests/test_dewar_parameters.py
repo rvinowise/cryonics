@@ -44,7 +44,7 @@ class DewarParameterTests(unittest.TestCase):
         crest = p["NECK_BORE_R"] + p["RIB_AMPL"]
         self.assertEqual(pts[0], (crest, p["z_c0"]))
         self.assertEqual(pts[-1][1], p["z_nt"])
-        self.assertTrue(all(a[1] < b[1] for a, b in zip(pts, pts[1:])))
+        self.assertTrue(all(a[1] <= b[1] for a, b in zip(pts, pts[1:])))
         self.assertEqual(min(r for r, z in pts), p["NECK_BORE_R"])
         # Verify smooth corrugation parameters are present and valid
         self.assertIn("RIB_VERT_HEIGHT", p)
@@ -52,14 +52,11 @@ class DewarParameterTests(unittest.TestCase):
         self.assertGreater(p["RIB_VERT_HEIGHT"], 0.0)
         self.assertGreater(p["RIB_TRANSITION_R"], 0.0)
         # Check for arc/cylindrical surfaces (smooth corrugation features)
-        has_arc_surfaces = any(type(f.Surface).__name__ in ("Circle", "BSplineSurface") for f in p["neck_corrug"].Faces)
+        has_arc_surfaces = any(type(f.Surface).__name__ in ("Toroid", "Circle", "BSplineSurface", "SurfaceOfRevolution") for f in p["neck_corrug"].Faces)
         has_cylindrical_segments = any(type(f.Surface).__name__ == "Cylinder" for f in p["neck_corrug"].Faces)
         self.assertTrue(has_arc_surfaces, "No smooth arc transitions found in corrugation")
         self.assertTrue(has_cylindrical_segments, "No vertical cylindrical segments found in corrugation")
         self.assertAlmostEqual(p["neck_corrug"].BoundBox.ZMax, p["z_nt"], places=5)
-        self.assertTrue(any(type(f.Surface).__name__ == "Cone"
-                            and f.BoundBox.ZMax >= p["z_nt"] - 1e-6
-                            for f in p["neck_corrug"].Faces))
         self.assertNotIn("COLLAR_LEN", p)
         self.assertAlmostEqual(p["NECK_OUT_R_IN"] - p["NECK_CORRUG_OUT_R"],
                                p["NECK_GAP"])
