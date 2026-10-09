@@ -1,0 +1,5 @@
+in the file dewar_xb200_long_neck.py there's a python script for FreeCad which generates a dewar. 
+
+modify its cork: it should have vacuum inside to reduce heat loses. its top and bottom should be slightly rounded, to reduce the stress. the very top lid (a horisontal disk) whouldn't have vacuum in it.
+
+the cutting box is placed at some weird angle. i want the FRONT view of the dewar to show the internals of it, so, the cutting box should cut away the half which blocks the frontal view of the inside. the cork should be rotated accordingly (top still show the whole protrusion of the handle). also, the supporting ropes (wires, holding the inner shell inside t he outer shell) should be rotated so that the user sees the opposite ropes in the cut view -- those opposite ropes should be seen on the right and on the left. one rope will be removed by the cut.

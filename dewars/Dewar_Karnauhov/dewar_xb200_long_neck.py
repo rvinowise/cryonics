@@ -9,7 +9,13 @@ vessels, but with
     transition arcs (the outer vertical ring connects outer edges of horizontal
     rings, and the inner vertical ring connects inner edges of horizontal rings),
     giving the metal wall a longer conduction path without sharp corners,
-  * a LONG BOTTLE-CORK-LIKE STOPPER (tapered plug + head + knob),
+  * a LONG BOTTLE-CORK-LIKE STOPPER (tapered plug + flat-topped head +
+    bracket handle) with a SEALED VACUUM CAVITY inside the plug to cut the
+    axial heat leak; the cavity's top and bottom heads are slightly rounded
+    (dished) to reduce the stress from the outside atmospheric pressure,
+    while the very top lid (the horizontal head disk) stays solid with a
+    perfectly FLAT top - no vacuum in it; a hand-sized bent-tube bracket
+    handle on the lid is used to pull the stopper out,
   * a DISHED (rounded) inner-vessel BOTTOM head like the other heads, so
     the bottom is not overloaded by a flat plate under LN2 pressure,
   * a separate FLAT FLOOR sheet resting on the dished bottom (on a small
@@ -58,12 +64,15 @@ Structure (bodies of revolution about Z, except the support wires)
                  outer jacket's side wall, spanning the full vacuum height
   NeckOuter    - outer neck tube + top flange with a profile-matched seat
   NeckCorrug   - corrugated (accordion) inner neck tube
-  Cork         - long tapered stopper
+  Cork         - long tapered stopper with a sealed vacuum cavity in the
+                 plug (rounded cavity heads; flat solid top lid disk +
+                 hand-sized bent-tube bracket handle)
 
 The space between the jacket and the inner vessel / between the two neck
 tubes is the vacuum (+ insulation) space.
 
-Set SECTION_VIEW = True to cut away half of the model and look inside.
+Set SECTION_VIEW = True to cut away the front (y<0) half, so the FreeCAD
+FRONT view (camera at -Y) shows the internals: the section plane is y = 0.
 """
 
 import math
@@ -127,13 +136,22 @@ CORK_LEN = 330.0             # maximum plug length; shortened for a short neck
 CORK_CLEARANCE = 0.5         # radial clearance to the narrowest neck bore
 CORK_TAPER = 2.0             # radial reduction from the plug top to its tip
 CORK_TIP_CLEARANCE = 5.0     # axial clearance above the vessel head
-CORK_HEAD_H = 24.0           # height of the head
-CORK_KNOB_R = 20.0           # radius of the grip knob
-CORK_KNOB_H = 22.0           # height of the knob
+CORK_HEAD_H = 24.0           # height of the head (the flat top lid disk)
+CORK_HANDLE_R = 10.0         # rod radius of the bent-tube handle (D = 20,
+# comfortable grip for a gloved hand)
+CORK_HANDLE_SPAN = 70.0      # half-distance between the handle legs
+# (90 mm of straight bar to grip)
+CORK_HANDLE_H = 50.0         # height of the handle bar above the flat lid
+# (40 mm of clearance under the bar for a hand)
+CORK_HANDLE_BEND_R = 25.0    # radius of the smooth 90-degree tube bends
 CORK_LIFT = 0.0              # lift the cork out of the neck (0 = inserted)
+CORK_WALL = 3.0              # wall thickness of the vacuum-insulated plug
+CORK_ROUND_D = 30.0           # rounding (dishing) depth of the cork top and
+# bottom and of the vacuum cavity heads
 
 # ---- misc ------------------------------------------------------------------
-SECTION_VIEW = True          # cut away the y>0 half to see the inside
+SECTION_VIEW = False          # cut away the FRONT (y<0) half so the Front
+# view shows the internals
 EXPORT_STEP = ""             # e.g. r"C:\temp\dewar.step" ; "" = do not export
 
 # ============================================================================
@@ -214,6 +232,21 @@ def cap_height(r, d, rr):
 EPS_R = 1.0e-3
 
 
+def cap_arc_eps(r, z0, d, up):
+    """Spherical dished head arc from (r, z0) ending at the tiny EPS_R
+    axial radius instead of the axis itself (for boolean cut tools;
+    see EPS_R)."""
+    s = 1.0 if up else -1.0
+    big_r = (r * r + d * d) / (2.0 * d)
+    cz = z0 + s * (d - big_r)
+    phi = math.asin(r / big_r)
+    pe = math.asin(EPS_R / big_r)
+    tm = 0.5 * (phi + pe)
+    mid = V(big_r * math.sin(tm), cz + s * big_r * math.cos(tm))
+    z_end = cz + s * math.sqrt(big_r * big_r - EPS_R * EPS_R)
+    return Part.Arc(V(r, z0), mid, V(EPS_R, z_end)).toShape()
+
+
 def dome_region(r, z0, d, skirt=50.0):
     """Region UNDER the top dished head surface (exact sphere) above
     z0 - skirt, revolved with a tiny EPS_R axial hole (see EPS_R)."""
@@ -261,7 +294,8 @@ for parameter in (
         "NECK_JOINT_MARGIN", "RIB_AMPL", "RIB_VERT_HEIGHT", "RIB_TRANSITION_R",
         "RIB_ANGLE", "RIB_WALL", "CORK_LEN",
         "CORK_CLEARANCE", "CORK_TAPER", "CORK_TIP_CLEARANCE", "CORK_HEAD_H",
-        "CORK_KNOB_R", "CORK_KNOB_H", "WIRE_R"):
+        "CORK_HANDLE_R", "CORK_HANDLE_SPAN", "CORK_HANDLE_H",
+        "CORK_HANDLE_BEND_R", "WIRE_R", "CORK_WALL", "CORK_ROUND_D"):
     require(math.isfinite(globals()[parameter]) and globals()[parameter] > 0.0,
             "%s must be finite and greater than zero" % parameter)
 require(math.isfinite(CORK_LIFT) and CORK_LIFT >= 0.0,
@@ -278,10 +312,10 @@ require(FLOOR_PAD_R < VES_R_IN,
         "FLOOR_PAD_R must be smaller than VES_R_IN")
 require(2.0 * WIRE_R < min(GAP_TOP, GAP_BOTTOM),
         "The support wires must be thinner than the head gaps")
-require(CORK_HEAD_H > 5.0 and CORK_KNOB_H > 10.0,
-        "The cork head / knob heights must allow their chamfers")
-require(CORK_KNOB_R > 4.0,
-        "CORK_KNOB_R must exceed the knob's 4 mm top chamfer")
+require(CORK_HEAD_H > 10.0,
+        "The cork head must be thick enough for its chamfer and the handle")
+require(CORK_HANDLE_H > CORK_HANDLE_R,
+        "CORK_HANDLE_H must exceed the handle rod radius")
 
 
 # ============================================================================
@@ -376,8 +410,8 @@ require(NECK_OUT_R_OUT < jac_r_in,
         "The outer neck opening must be smaller than the jacket cavity radius")
 require(CORK_R_BOT > 2.0,
         "The neck bore is too small for the cork clearance, taper and tip")
-require(CORK_HEAD_R - 5.0 > CORK_KNOB_R + 6.0,
-        "The cork knob and its chamfer must fit on the cork head")
+require(CORK_HEAD_R - 5.0 > CORK_HANDLE_SPAN + CORK_HANDLE_R,
+        "The cork handle legs must fit on the head disk inside its chamfer")
 
 # ---- derived outer tube / flange heights and stopper fit ------------------
 z_start = (z_ja - cap_height(jac_r_in, JAC_HEAD_D, NECK_OUT_R_OUT)
@@ -393,7 +427,6 @@ z_cork_limit = (z_va - cap_height(ves_r_out, ves_d_out, NECK_BORE_R)
 cork_len = min(CORK_LEN, z_nt - z_cork_limit)
 require(cork_len > 0.0,
         "CORK_TIP_CLEARANCE leaves no room for the cork in this neck")
-cork_tip_h = min(6.0, cork_len / 4.0)
 
 # ---- inner vessel (shell) --------------------------------------------------
 ves_outer = capsule(ves_r_out, z_v0, z_v1, ves_d_out, ves_d_out)
@@ -422,28 +455,61 @@ skirt = polygon_solid([(sk_ri, 0.0), (sk_ro, 0.0), (sk_ro, sk_top), (sk_ri, sk_t
 # 4 long diagonal rods, each from the BOTTOM of the inner vessel's side wall
 # (the bottom head / cylinder junction) up to the TOP of the outer jacket's
 # side wall (the top head / cylinder junction). They span the full height of
-# the vacuum gap, maximising the conduction path. Each rod lies in a plane
-# through the axis and is extended a little INTO both shells, so its ends
-# overlap the shell walls (welded contact) while the visible part in the
-# vacuum is cut flush by the shell surfaces.
+# the vacuum gap, maximising the conduction path. Each rod is run THROUGH
+# both shell walls (its axis ends sit mid-wall), and every protruding round
+# cap is trimmed FLUSH with the inner and outer shell surfaces, so the rods
+# look welded into the walls and no flat cylinder end is ever exposed (the
+# rods are fatter than the walls, so a cap can never hide inside a wall -
+# it must be cut flush by the surface it crosses).
 WIRE_COUNT = 4
-wire_start_r = ves_r_out          # bottom of the inner side wall
-wire_start_z = z_v0
-wire_end_r = jac_r_in             # top of the outer side wall
-wire_end_z = z_j1
-pen = min(0.5 * VES_T, 0.5, 0.5 * JAC_T)   # anchor depth into the shells
+
+
+def end_zone(cx, cy, z0, z1, hw=6.0):
+    """Small box around a rod end point: limits a flush trim to that end
+    only, so the middle of the rod in the vacuum is never touched."""
+    return Part.makeBox(2.0 * hw, 2.0 * hw, z1 - z0,
+                        VEC(cx - hw, cy - hw, z0))
+
+
+trim_r = JAC_R_OUT + 5.0
+# region below the vessel outer surface (lower rod caps)
+trim_lo = Part.makeBox(2.0 * trim_r, 2.0 * trim_r, z_v0 + 10.0,
+                       VEC(-trim_r, -trim_r, -10.0)).cut(ves_outer)
+# region OUTSIDE the jacket outer envelope: the rods graze tangentially, so
+# their outer edges protrude through the jacket surface over the last ~15 mm
+# of their run - trim all of that flush with the jacket outer surface
+trim_out = Part.makeBox(2.0 * trim_r, 2.0 * trim_r,
+                        (z_nt + 50.0) - (z_v0 - 10.0),
+                        VEC(-trim_r, -trim_r, z_v0 - 10.0)).cut(jac_outer)
 wires = []
 for k in range(WIRE_COUNT):
-    phi = math.radians(45.0 + 90.0 * k)
+    # Wires at 0 / 90 / 180 / 270 deg: in the SECTION_VIEW front cut (plane
+    # y = 0, front half removed) the opposite wires at 0 deg and 180 deg
+    # lie ON the cut plane, are sliced in half and stay visible on the
+    # right and on the left; the back wire (90 deg) remains whole and the
+    # front one (270 deg) is removed with the front half.
+    phi = math.radians(90.0 * k)
     c, s = math.cos(phi), math.sin(phi)
-    p0 = VEC(wire_start_r * c, wire_start_r * s, wire_start_z)
-    p1 = VEC(wire_end_r * c, wire_end_r * s, wire_end_z)
+    p0 = VEC((ves_r_out - 0.5 * VES_T) * c,
+             (ves_r_out - 0.5 * VES_T) * s, z_v0)   # mid-wall start
+    p1 = VEC((jac_r_in + 0.5 * JAC_T) * c,
+             (jac_r_in + 0.5 * JAC_T) * s, z_j1)    # mid-wall end
     axis = p1.sub(p0)
-    length = axis.Length
-    u = axis.normalize()
-    p0e = p0.sub(u.multiply(pen))
-    p1e = p1.add(u.multiply(pen))
-    wires.append(Part.makeCylinder(WIRE_R, length + 2.0 * pen, p0e, u))
+    rod = Part.makeCylinder(WIRE_R, axis.Length, p0, axis.normalize())
+    # flush-trim everything that must not be seen:
+    # - the rod's inner sliver along the vessel cavity (the rod is fatter
+    #   than the wall, so it grazes the cavity over ~40 mm of its run)
+    # - the cap below the vessel outer head surface
+    # - the sliver outside the jacket outer envelope (grazing exit)
+    # - the end cap sliver in the jacket vacuum-side cavity (zone-limited,
+    #   so the rod's middle in the gap is never touched)
+    rod = rod.cut(ves_cavity)
+    rod = rod.cut(trim_lo)
+    # remove the sliver outside the jacket outer envelope (grazing exit)
+    rod = rod.cut(trim_out)
+    rod = rod.cut(jac_cavity.common(
+        end_zone(jac_r_in * c, jac_r_in * s, z_j1 - 5.0, z_j1 + 5.0)))
+    wires.append(rod.removeSplitter())
 
 # ---- internal floor (flat sheet standing on the dished bottom) --------------
 # A flat disk the full cavity radius, welded to the vessel wall at the
@@ -591,22 +657,86 @@ neck_outer = polygon_solid([
 ])
 neck_outer = neck_outer.cut(neck_envelope).cut(jac_cavity).removeSplitter()
 
-# ---- cork (long tapered stopper like a bottle cork) ------------------------
+# ---- cork (long tapered stopper with a sealed vacuum cavity) ---------------
+# The plug is a hollow shell: a SEALED VACUUM CAVITY inside the tapered plug
+# interrupts the axial heat leak down the neck. The cavity's top and bottom
+# heads and the outer tip are slightly rounded (dished), so the outside
+# atmospheric pressure produces membrane rather than bending stress in the
+# walls. The very top lid - the horizontal head disk - contains NO vacuum:
+# the cavity ceiling stops CORK_WALL below the plug top, so everything
+# at/above zc stays solid, and its top face is ALWAYS FLAT (no knob). A
+# hand-sized bent-tube bracket handle on the flat lid is used to grip and
+# pull the stopper out of the neck.
 zc = z_nt + CORK_LIFT
-cork = polygon_solid([
-    (0.0, zc - cork_len),
-    (CORK_R_BOT - 2.0, zc - cork_len),                 # rounded-off tip
-    (CORK_R_BOT, zc - cork_len + cork_tip_h),
-    (CORK_R_TOP, zc),                                  # taper
-    (CORK_HEAD_R, zc),                                 # head, flat underside
-    (CORK_HEAD_R, zc + CORK_HEAD_H - 5.0),
-    (CORK_HEAD_R - 5.0, zc + CORK_HEAD_H),
-    (CORK_KNOB_R + 6.0, zc + CORK_HEAD_H),
-    (CORK_KNOB_R, zc + CORK_HEAD_H + 6.0),             # knob
-    (CORK_KNOB_R, zc + CORK_HEAD_H + CORK_KNOB_H - 4.0),
-    (CORK_KNOB_R - 4.0, zc + CORK_HEAD_H + CORK_KNOB_H),
-    (0.0, zc + CORK_HEAD_H + CORK_KNOB_H),
+z_tip = zc - cork_len                        # outer bottom apex
+z_lid = zc + CORK_HEAD_H                     # FLAT top of the lid disk
+require(cork_len > 2.0 * (CORK_WALL + CORK_ROUND_D),
+        "The cork is too short for its vacuum cavity, wall and roundings")
+require(CORK_R_TOP - CORK_WALL > 0.0,
+        "The cork plug wall must be thinner than the plug radius")
+cork = revolve_profile(Part.Wire([
+    cap_arc(CORK_R_BOT, z_tip + CORK_ROUND_D, CORK_ROUND_D, up=False),
+    # slightly rounded (dished) bottom tip
+    Part.makeLine(V(0.0, z_tip), V(0.0, z_lid)),
+    Part.makeLine(V(0.0, z_lid), V(CORK_HEAD_R - 5.0, z_lid)),   # flat top
+    Part.makeLine(V(CORK_HEAD_R - 5.0, z_lid),
+                  V(CORK_HEAD_R, zc + CORK_HEAD_H - 5.0)),       # rim chamfer
+    Part.makeLine(V(CORK_HEAD_R, zc + CORK_HEAD_H - 5.0),
+                  V(CORK_HEAD_R, zc)),
+    Part.makeLine(V(CORK_HEAD_R, zc), V(CORK_R_TOP, zc)),
+    Part.makeLine(V(CORK_R_TOP, zc),                  # taper
+                  V(CORK_R_BOT, z_tip + CORK_ROUND_D)),
+]))
+# sealed vacuum cavity inside the plug (boolean tool -> EPS_R axial hole)
+r_cav_bot = CORK_R_BOT - CORK_WALL
+r_cav_top = CORK_R_TOP - CORK_WALL
+cork_cavity = revolve_profile(Part.Wire([
+    cap_arc_eps(r_cav_bot, z_tip + CORK_WALL + CORK_ROUND_D,
+                CORK_ROUND_D, up=False),              # rounded cavity floor
+    Part.makeLine(V(EPS_R, z_tip + CORK_WALL),
+                  V(EPS_R, zc - CORK_WALL)),
+    cap_arc_eps(r_cav_top, zc - CORK_WALL - CORK_ROUND_D,
+                CORK_ROUND_D, up=True),               # rounded cavity ceiling
+    Part.makeLine(V(r_cav_top, zc - CORK_WALL - CORK_ROUND_D),
+                  V(r_cav_bot, z_tip + CORK_WALL + CORK_ROUND_D)),
+]))
+cork = cork.cut(cork_cavity).removeSplitter()
+# Bent-tube bracket handle: ONE continuous pipe swept along a path of two
+# legs, two smooth 90-degree bends and a cross bar, so the corners look
+# like a real bent tube instead of stacked cylinders. The leg bottoms are
+# embedded CORK_HEAD_H / 3 into the solid lid (far above the cavity
+# ceiling); the bar sits CORK_HANDLE_H above the flat lid top.
+h_pen = CORK_HEAD_H / 3.0
+h_top = z_lid + CORK_HANDLE_H            # cross-bar axis height
+bend = CORK_HANDLE_BEND_R
+require(CORK_HANDLE_SPAN > bend + CORK_HANDLE_R,
+        "The handle legs must be far enough apart for its bends")
+require(CORK_HANDLE_H > bend + CORK_HANDLE_R,
+        "The handle must stand high enough above the lid for its bends")
+p_bot = z_lid - h_pen                    # embedded leg bottoms
+handle_path = Part.Wire([
+    Part.makeLine(VEC(-CORK_HANDLE_SPAN, 0.0, p_bot),
+                  VEC(-CORK_HANDLE_SPAN, 0.0, h_top - bend)),
+    arc_edge(VEC(-CORK_HANDLE_SPAN, 0.0, h_top - bend),
+             VEC(-CORK_HANDLE_SPAN + bend, 0.0, h_top),
+             VEC(-CORK_HANDLE_SPAN + bend, 0.0, h_top - bend), True),
+    Part.makeLine(VEC(-CORK_HANDLE_SPAN + bend, 0.0, h_top),
+                  VEC(CORK_HANDLE_SPAN - bend, 0.0, h_top)),
+    arc_edge(VEC(CORK_HANDLE_SPAN - bend, 0.0, h_top),
+             VEC(CORK_HANDLE_SPAN, 0.0, h_top - bend),
+             VEC(CORK_HANDLE_SPAN - bend, 0.0, h_top - bend), True),
+    Part.makeLine(VEC(CORK_HANDLE_SPAN, 0.0, h_top - bend),
+                  VEC(CORK_HANDLE_SPAN, 0.0, p_bot)),
 ])
+handle_profile = Part.Wire([Part.Circle(
+    VEC(-CORK_HANDLE_SPAN, 0.0, p_bot), VEC(0.0, 0.0, 1),
+    CORK_HANDLE_R).toShape()])
+handle = handle_path.makePipeShell([handle_profile], True, False)
+# The handle is built in the XZ plane (y = 0), which is exactly the
+# SECTION_VIEW front-cut plane: in the Front view its WHOLE protrusion
+# (span, bends and bar) stays visible, sliced in half lengthwise like
+# the 0/180 deg support wires.
+cork = cork.fuse(handle).removeSplitter()
 
 # ============================================================================
 #                              DOCUMENT
@@ -654,14 +784,22 @@ if SECTION_VIEW:
     y_max = max(s.BoundBox.YMax for n, s, c in parts) + 1.0
     z_min = min(s.BoundBox.ZMin for n, s, c in parts) - 1.0
     z_max = max(s.BoundBox.ZMax for n, s, c in parts) + 1.0
-    # Cut along the plane y = x (the box is rotated 45 deg about Z) so the
-    # two OPPOSITE support wires at 45 deg and 225 deg lie on the cut plane
-    # and stay visible (cut in half), instead of the two ADJACENT wires that
-    # the old y = 0 cut showed. The removed half is y > x.
+    # Cut along the plane y = 0: remove the FRONT half (y < 0) that would
+    # otherwise block the FreeCAD Front view (camera at -Y looking towards
+    # +Y), so the FRONT view directly shows the internals. The opposite
+    # support wires at 0 and 180 deg and the cork handle lie on the cut
+    # plane: they are sliced in half but stay fully visible (right/left
+    # wires and the whole handle protrusion).
+    # But extend the cut box slightly beyond the wires' ends to avoid
+    # rendering artifacts from the wire caps that are now flush with the
+    # jacket skin.
     half = 1.5 * max(x_max - x_min, y_max)
-    cutter = Part.makeBox(2.0 * half, half, z_max - z_min,
-                          VEC(-half, 0.0, z_min))
-    cutter.rotate(VEC(0, 0, 0), VEC(0, 0, 1), 45.0)
+    # Extend the cut box vertically to ensure the wire ends are fully clipped
+    # (they are flush with the jacket skin, so they may still appear if the
+    # cut is too tight)
+    z_range = z_max - z_min
+    cutter = Part.makeBox(2.0 * half, half, z_range + 50.0,
+                          VEC(-half, -half - 10.0, z_min - 25.0))
     parts = [(n, s.cut(cutter), c) for n, s, c in parts]
     # Drop any part that lies entirely in the removed half.
     parts = [(n, s, c) for n, s, c in parts if s.Solids]
@@ -712,11 +850,14 @@ App.Console.PrintMessage(
     "Corrugated neck ribs      : %d visible (pitch %.1f mm, depth %.1f mm, vert %.1f mm, radius %.1f mm)\n"
     "Bellows wall thickness    : %.2f mm (NOT structurally rated)\n"
     "Cork plug length          : %.1f mm (requested maximum %.1f mm)\n"
+    "Cork vacuum cavity        : wall %.1f mm, dished heads %.1f mm deep\n"
+    "                            (flat solid top lid + bracket handle)\n"
     % ((ves_cavity.Volume - floor_part.Volume) / 1.0e6,
        ves_cavity.Volume / 1.0e6, neck_bore_vol, ves_cyl_h, z_nt,
-       zc + CORK_HEAD_H + CORK_KNOB_H, 2 * JAC_R_OUT, NECK_LENGTH,
+       zc + CORK_HEAD_H + CORK_HANDLE_H + CORK_HANDLE_R,
+       2 * JAC_R_OUT, NECK_LENGTH,
        2 * NECK_BORE_R, 2 * NECK_OUT_R_IN,
        n_rib_visible, pitch, RIB_AMPL,
        hv_fit, rc_fit,
-       RIB_WALL, cork_len, CORK_LEN)
+       RIB_WALL, cork_len, CORK_LEN, CORK_WALL, CORK_ROUND_D)
 )
