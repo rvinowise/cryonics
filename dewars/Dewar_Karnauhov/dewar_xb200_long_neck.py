@@ -23,6 +23,9 @@ vessels, but with
   * 4 long diagonal SUPPORT WIRES in the vacuum, each running from the
     bottom of the inner vessel's side wall up to the top of the outer
     jacket's side wall (the longest straight path between the shells).
+    The outer jacket's TOP SHOULDER is ROUNDED (dished) but raised all the
+    way to the top of the neck, so the side wall is much taller and the
+    wires are longer, which lowers their thermal conduction.
 
 Usage
 -----
@@ -54,7 +57,9 @@ does not reduce the steady-state heat leak. The stopper must remain vented.
 Structure (bodies of revolution about Z, except the support wires)
 -------------------------------------------------------------------
   Skirt        - support ring under the outer jacket
-  Jacket       - outer shell (vacuum jacket) with dished heads
+  Jacket       - outer shell (vacuum jacket) with ROUNDED heads; the top
+                 head is raised to the top of the neck so the support
+                 wires are longer and conduct less heat
   InnerVessel  - inner LN2 vessel with dished heads on BOTH ends; the
                  cavity volume above the floor hits TARGET_VOLUME_L
   Floor        - flat internal floor sheet (with a central support pad)
@@ -150,7 +155,7 @@ CORK_ROUND_D = 30.0           # rounding (dishing) depth of the cork top and
 # bottom and of the vacuum cavity heads
 
 # ---- misc ------------------------------------------------------------------
-SECTION_VIEW = False          # cut away the FRONT (y<0) half so the Front
+SECTION_VIEW = True          # cut away the FRONT (y<0) half so the Front
 # view shows the internals
 EXPORT_STEP = ""             # e.g. r"C:\temp\dewar.step" ; "" = do not export
 
@@ -214,6 +219,19 @@ def capsule(r, z0, z1, d0, d1):
     e_top = cap_arc(r, z1, d1, up=True)
     e_axis = Part.makeLine(V(0.0, z1 + d1), V(0.0, z0 - d0))
     wire = Part.Wire([e_bot, e_cyl, e_top, e_axis])
+    return revolve_profile(wire)
+
+
+def capsule_flat_top(r, z0, z1, d0):
+    """Cylinder (r) between junction heights z0..z1 with a dished bottom
+    head of depth d0 and a FLAT horizontal top at z1 (no sloped shoulder).
+    The flat top lets the support wires run all the way up to z1, which
+    makes them longer and lowers their thermal conduction."""
+    e_bot = cap_arc(r, z0, d0, up=False)
+    e_axis = Part.makeLine(V(0.0, z0 - d0), V(0.0, z1))
+    e_top = Part.makeLine(V(0.0, z1), V(r, z1))
+    e_cyl = Part.makeLine(V(r, z1), V(r, z0))
+    wire = Part.Wire([e_bot, e_axis, e_top, e_cyl])
     return revolve_profile(wire)
 
 
@@ -362,7 +380,12 @@ z_v0 = z_vb + ves_d_out                 # vessel cylinder bottom junction
 z_v1 = z_v0 + ves_cyl_h                 # vessel cylinder top junction
 z_va = z_v1 + ves_d_out                         # vessel outer top apex
 
-z_ja = z_va + GAP_TOP                           # jacket cavity top apex
+# The jacket's top shoulder is ROUNDED (dished) but raised all the way to
+# the top of the neck: its apex sits just under the flange (z_nt - FLANGE_T).
+# The side wall therefore reaches much higher than before, so the support
+# wires are longer and conduct less heat, while the rounded head still
+# resists the external atmospheric pressure.
+z_ja = z_va + NECK_LENGTH - FLANGE_T            # jacket cavity top apex
 z_j0 = z_jb + jac_d_out                         # jacket cylinder bottom junction
 z_j1 = z_ja - JAC_HEAD_D                        # jacket cylinder top junction
 z_jat = z_ja + JAC_T                            # jacket outer top apex
@@ -414,12 +437,13 @@ require(CORK_HEAD_R - 5.0 > CORK_HANDLE_SPAN + CORK_HANDLE_R,
         "The cork handle legs must fit on the head disk inside its chamfer")
 
 # ---- derived outer tube / flange heights and stopper fit ------------------
-z_start = (z_ja - cap_height(jac_r_in, JAC_HEAD_D, NECK_OUT_R_OUT)
-           - NECK_JOINT_MARGIN)
+# The outer neck tube now runs all the way from the inner vessel's top
+# (z_va) up to the flange, so the vacuum gap around the corrugated inner
+# neck stays long even though the jacket's rounded shoulder is raised.
+z_start = z_va
 z_fl = z_nt - FLANGE_T
-require(z_fl > z_jat - cap_height(JAC_R_OUT, jac_d_out, NECK_CORRUG_OUT_R)
-        + NECK_JOINT_MARGIN,
-        "NECK_LENGTH is too short to keep the flange above the jacket head")
+require(z_fl >= z_ja,
+        "NECK_LENGTH is too short to keep the flange above the jacket top")
 require(z_fl > z_start,
         "NECK_LENGTH is too short for the outer tube and flange")
 z_cork_limit = (z_va - cap_height(ves_r_out, ves_d_out, NECK_BORE_R)
@@ -436,11 +460,14 @@ ves_shell = ves_outer.cut(ves_cavity)
 # constant-radius cylinder that would leave gaps beside the sloping rings.
 
 # ---- outer jacket (shell) --------------------------------------------------
+# Both heads are ROUNDED (dished). The top head is simply raised to the top
+# of the neck, so the side wall is much taller and the support wires are
+# longer, while the rounded shape still resists the vacuum load.
 jac_outer = capsule(JAC_R_OUT, z_j0, z_j1, jac_d_out, jac_d_out)
 jac_cavity = capsule(jac_r_in, z_j0, z_j1, JAC_HEAD_D, JAC_HEAD_D)
 jac_shell = jac_outer.cut(jac_cavity)
-# opening for the outer neck tube in the top head: hole at the tube OUTER
-# radius, deep enough to fully open the curved head
+# opening for the outer neck tube in the raised top head: hole at the tube
+# OUTER radius, through the full head
 jac_hole_bot = z_start
 jac_shell = jac_shell.cut(cylinder(NECK_OUT_R_OUT, jac_hole_bot,
                                    z_jat + NECK_JOINT_MARGIN))
@@ -492,8 +519,11 @@ for k in range(WIRE_COUNT):
     c, s = math.cos(phi), math.sin(phi)
     p0 = VEC((ves_r_out - 0.5 * VES_T) * c,
              (ves_r_out - 0.5 * VES_T) * s, z_v0)   # mid-wall start
+    # End the rod at the top of the raised side wall (the head/cylinder
+    # junction), still inside the wall.
+    z_wire_end = z_j1
     p1 = VEC((jac_r_in + 0.5 * JAC_T) * c,
-             (jac_r_in + 0.5 * JAC_T) * s, z_j1)    # mid-wall end
+             (jac_r_in + 0.5 * JAC_T) * s, z_wire_end)  # mid-wall end
     axis = p1.sub(p0)
     rod = Part.makeCylinder(WIRE_R, axis.Length, p0, axis.normalize())
     # flush-trim everything that must not be seen:
@@ -508,7 +538,8 @@ for k in range(WIRE_COUNT):
     # remove the sliver outside the jacket outer envelope (grazing exit)
     rod = rod.cut(trim_out)
     rod = rod.cut(jac_cavity.common(
-        end_zone(jac_r_in * c, jac_r_in * s, z_j1 - 5.0, z_j1 + 5.0)))
+        end_zone(jac_r_in * c, jac_r_in * s,
+                 z_wire_end - 5.0, z_wire_end + 5.0)))
     wires.append(rod.removeSplitter())
 
 # ---- internal floor (flat sheet standing on the dished bottom) --------------
