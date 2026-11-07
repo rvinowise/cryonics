@@ -385,7 +385,7 @@ z_va = z_v1 + ves_d_out                         # vessel outer top apex
 # The side wall therefore reaches much higher than before, so the support
 # wires are longer and conduct less heat, while the rounded head still
 # resists the external atmospheric pressure.
-z_ja = z_va + NECK_LENGTH - FLANGE_T            # jacket cavity top apex
+z_ja = z_va + NECK_LENGTH                       # jacket cavity top apex (top of corrugation)
 z_j0 = z_jb + jac_d_out                         # jacket cylinder bottom junction
 z_j1 = z_ja - JAC_HEAD_D                        # jacket cylinder top junction
 z_jat = z_ja + JAC_T                            # jacket outer top apex
@@ -423,10 +423,9 @@ t = RIB_WALL
 NECK_CORRUG_OUT_R = rout_c + t / 2.0
 NECK_OUT_R_IN = NECK_CORRUG_OUT_R + NECK_GAP
 NECK_OUT_R_OUT = NECK_OUT_R_IN + NECK_OUT_T
-FLANGE_R = NECK_OUT_R_OUT + FLANGE_OVERHANG
 CORK_R_TOP = NECK_BORE_R - CORK_CLEARANCE
 CORK_R_BOT = CORK_R_TOP - CORK_TAPER
-CORK_HEAD_R = FLANGE_R + 2.0
+CORK_HEAD_R = NECK_CORRUG_OUT_R + 20.0
 require(NECK_CORRUG_OUT_R < VES_R_IN,
         "The corrugated neck opening must be smaller than VES_R_IN")
 require(NECK_OUT_R_OUT < jac_r_in,
@@ -437,15 +436,9 @@ require(CORK_HEAD_R - 5.0 > CORK_HANDLE_SPAN + CORK_HANDLE_R,
         "The cork handle legs must fit on the head disk inside its chamfer")
 
 # ---- derived outer tube / flange heights and stopper fit ------------------
-# The outer neck tube now runs all the way from the inner vessel's top
-# (z_va) up to the flange, so the vacuum gap around the corrugated inner
-# neck stays long even though the jacket's rounded shoulder is raised.
-z_start = z_va
-z_fl = z_nt - FLANGE_T
-require(z_fl >= z_ja,
-        "NECK_LENGTH is too short to keep the flange above the jacket top")
-require(z_fl > z_start,
-        "NECK_LENGTH is too short for the outer tube and flange")
+# There is no separate outer neck tube or flange any more: the inner
+# corrugated neck passes directly through the raised top head.
+z_start = z_j1
 z_cork_limit = (z_va - cap_height(ves_r_out, ves_d_out, NECK_BORE_R)
                 + NECK_JOINT_MARGIN + CORK_TIP_CLEARANCE)
 cork_len = min(CORK_LEN, z_nt - z_cork_limit)
@@ -460,17 +453,14 @@ ves_shell = ves_outer.cut(ves_cavity)
 # constant-radius cylinder that would leave gaps beside the sloping rings.
 
 # ---- outer jacket (shell) --------------------------------------------------
-# Both heads are ROUNDED (dished). The top head is simply raised to the top
-# of the neck, so the side wall is much taller and the support wires are
-# longer, while the rounded shape still resists the vacuum load.
+# Both heads are ROUNDED (dished). The top head is raised to the very top
+# of the corrugation, so the side wall is much taller and the support wires
+# are longer, while the rounded shape still resists the vacuum load.
 jac_outer = capsule(JAC_R_OUT, z_j0, z_j1, jac_d_out, jac_d_out)
 jac_cavity = capsule(jac_r_in, z_j0, z_j1, JAC_HEAD_D, JAC_HEAD_D)
 jac_shell = jac_outer.cut(jac_cavity)
-# opening for the outer neck tube in the raised top head: hole at the tube
-# OUTER radius, through the full head
-jac_hole_bot = z_start
-jac_shell = jac_shell.cut(cylinder(NECK_OUT_R_OUT, jac_hole_bot,
-                                   z_jat + NECK_JOINT_MARGIN))
+# The inner corrugated neck passes directly through the raised top head;
+# the hole is cut later with the neck's own outer envelope (neck_envelope).
 
 # ---- skirt -----------------------------------------------------------------
 sk_ro = SKIRT_R
@@ -661,32 +651,27 @@ neck_corrug = revolve_profile(corrug_wire)
 neck_corrug = neck_corrug.cut(
     dome_region(VES_R_IN, z_v1, VES_HEAD_D)).removeSplitter()
 
-# Envelope solid to cut matching seats in vessel head and flange
-env_top = Part.makeLine(outer_edges[-1].Vertexes[1].Point, V(0.0, z_c1))
-env_axis = Part.makeLine(V(0.0, z_c1), V(0.0, z_c0))
+# Envelope solid to cut matching seats in the vessel head and the jacket's
+# raised top head (the inner neck passes directly through the shoulder).
+# The envelope is extended ABOVE z_nt so it cuts the whole thickness of the
+# jacket's top head, not just the part below the cavity apex.
+env_top = Part.makeLine(outer_edges[-1].Vertexes[1].Point,
+                        V(0.0, z_jat + NECK_JOINT_MARGIN))
+env_axis = Part.makeLine(V(0.0, z_jat + NECK_JOINT_MARGIN), V(0.0, z_c0))
 env_bot = Part.makeLine(V(0.0, z_c0), outer_edges[0].Vertexes[0].Point)
 env_wire = Part.Wire(outer_edges + [env_top, env_axis, env_bot])
 neck_envelope = revolve_profile(env_wire)
 ves_shell = ves_shell.cut(neck_envelope).removeSplitter()
+# Cut the jacket's raised top head with the same envelope, so the inner
+# corrugated neck passes through it with an exactly matching surface.
+jac_shell = jac_shell.cut(neck_envelope).removeSplitter()
+# The corrugated neck's top is left at z_nt, so it runs a little way into
+# the jacket's raised top head. That overlap is the direct weld to the
+# sloped shoulder. Trim anything that pokes out ABOVE the shoulder's outer
+# surface, so the corrugation never protrudes past the top of the jacket.
+neck_corrug = neck_corrug.common(jac_outer).removeSplitter()
 n_rib_visible = sum(1 for i in range(n_rib)
                     if z_c0 + (i + 1) * pitch > neck_corrug.BoundBox.ZMin)
-
-# ---- outer neck tube + flange (NO straight inner mouth sleeve) -------------
-r_o_in = NECK_OUT_R_IN
-r_o_out = NECK_OUT_R_OUT
-# Start with a full flange disk; the shared envelope cuts its bore to match
-# the angled bellows all the way through the flange thickness to the mouth.
-neck_outer = polygon_solid([
-    (r_o_in, z_start),
-    (r_o_out, z_start),
-    (r_o_out, z_fl),
-    (FLANGE_R, z_fl),
-    (FLANGE_R, z_nt),
-    (0.0, z_nt),
-    (0.0, z_fl),
-    (r_o_in, z_fl),
-])
-neck_outer = neck_outer.cut(neck_envelope).cut(jac_cavity).removeSplitter()
 
 # ---- cork (long tapered stopper with a sealed vacuum cavity) ---------------
 # The plug is a hollow shell: a SEALED VACUUM CAVITY inside the tapered plug
@@ -777,7 +762,6 @@ parts = [
     ("Jacket", jac_shell, (0.80, 0.82, 0.85)),
     ("InnerVessel", ves_shell, (0.55, 0.60, 0.70)),
     ("Floor", floor_part, (0.65, 0.45, 0.30)),
-    ("NeckOuter", neck_outer, (0.80, 0.82, 0.85)),
     ("NeckCorrug", neck_corrug, (0.90, 0.60, 0.25)),
     ("Cork", cork, (0.78, 0.60, 0.38)),
 ]
@@ -791,9 +775,8 @@ for name, shape, color in parts:
     require(shape.isValid() and len(shape.Solids) == 1,
             "%s is not a valid single solid; check the input dimensions" % name)
 for label, first, second in (
-        ("vessel / conical neck", ves_shell, neck_corrug),
-        ("conical neck / mouth flange", neck_corrug, neck_outer),
-        ("jacket / outer neck", jac_shell, neck_outer),
+        ("vessel / corrugated neck", ves_shell, neck_corrug),
+        ("corrugated neck / jacket", neck_corrug, jac_shell),
         ("skirt / jacket", skirt, jac_shell)):
     joint = first.fuse(second).removeSplitter()
     require(joint.isValid() and len(joint.Solids) == 1,

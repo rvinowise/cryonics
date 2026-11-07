@@ -73,8 +73,9 @@ class DewarParameterTests(unittest.TestCase):
             p["VES_R_IN"], p["VES_HEAD_D"], p["NECK_CORRUG_OUT_R"])
         highest_inner_head = p["z_v1"] + p["VES_HEAD_D"] - p["cap_height"](
             p["VES_R_IN"], p["VES_HEAD_D"], p["NECK_BORE_R"])
-        outer_bottom = p["z_ja"] - p["cap_height"](
-            p["jac_r_in"], p["JAC_HEAD_D"], p["NECK_OUT_R_OUT"])
+        # The outer neck tube now runs from the inner vessel's top (z_va)
+        # all the way up to the flange, so its bottom is at z_va.
+        outer_bottom = p["z_va"]
         self.assertGreaterEqual(p["neck_corrug"].BoundBox.ZMin, lowest_inner_head - 1e-6)
         self.assertLessEqual(p["neck_corrug"].BoundBox.ZMin, highest_inner_head + 1e-6)
         self.assertAlmostEqual(p["neck_outer"].BoundBox.ZMin, outer_bottom, places=5)
